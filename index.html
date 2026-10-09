@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>德扑训练器</title>
+<style>
+:root{--bg:#0f1a14;--card:#182820;--fg:#e8f0ea;--mute:#8aa394;--ok:#4cc38a;--bad:#e5645c;--acc:#e0b04a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,"PingFang SC",sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:8px 0 12px}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+nav button{flex:1;padding:10px 6px;border:1px solid #2c4436;background:var(--card);color:var(--fg);border-radius:8px;cursor:pointer;font-size:14px}
+nav button.on{background:var(--acc);color:#1a1405;border-color:var(--acc)}
+.card{background:var(--card);border-radius:12px;padding:18px;margin-bottom:12px}
+.q{font-size:18px;margin:0 0 14px}
+.hand{font-size:44px;text-align:center;letter-spacing:6px;margin:8px 0}
+.red{color:#ef6b6b}
+.meta{color:var(--mute);font-size:14px;text-align:center;margin-bottom:12px}
+.row{display:flex;gap:10px}
+.row button,.go{flex:1;padding:14px;font-size:17px;border:0;border-radius:10px;cursor:pointer;background:#2c4436;color:var(--fg)}
+.row button:hover,.go:hover{background:#3a5a47}
+input[type=number]{width:100%;padding:12px;font-size:18px;border-radius:8px;border:1px solid #2c4436;background:#0f1a14;color:var(--fg);margin-bottom:10px}
+.fb{margin-top:14px;padding:12px;border-radius:8px;font-size:15px}
+.fb.ok{background:#1d3d2d;border:1px solid var(--ok)}
+.fb.bad{background:#40211f;border:1px solid var(--bad)}
+.next{margin-top:10px;width:100%;padding:12px;border:0;border-radius:10px;background:var(--acc);color:#1a1405;font-size:16px;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(13,1fr);gap:1px;margin-top:10px;font-size:9px}
+.grid div{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:#22352b;color:var(--mute);border-radius:2px}
+.grid{grid-template-columns:repeat(13,minmax(0,1fr))}
+.grid div{overflow:hidden;min-width:0}
+.grid.big{font-size:clamp(7px,2.4vw,11px);gap:2px}
+.grid.big div{cursor:pointer;border-radius:3px;font-weight:600}
+.grid .in{background:#2d7a55;color:#fff}
+.grid .cur{outline:2px solid var(--acc)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:8px 4px;text-align:left;border-bottom:1px solid #2c4436}
+.note{color:var(--mute);font-size:13px;margin-top:16px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>♠ 德扑训练器</h1>
+<nav id="nav"></nav>
+<div id="view"></div>
+<p class="note">范围为 6 人桌 100bb 的近似 GTO 基线，用来建立直觉，不是求解器精确输出。短码推挤按牌力排名和筹码深度估算，边缘牌两种选择都算对。</p>
+</main>
+<script>
+// ---------- 通用 ----------
+const RANKS='AKQJT98765432';
+const SUITS=['♠','♥','♦','♣'];
+const rnd=n=>Math.floor(Math.random()*n);
+const pick=a=>a[rnd(a.length)];
+const $=id=>document.getElementById(id);
+
+let stats={};
+try{stats=JSON.parse(localStorage.getItem('pokerStats')||'{}')}catch(e){}
+function rec(mod,ok,info){
+  const s=stats[mod]=stats[mod]||{n:0,c:0,miss:[]};
+  s.n++; if(ok)s.c++; else{s.miss.unshift(info);s.miss=s.miss.slice(0,15)}
+  try{localStorage.setItem('pokerStats',JSON.stringify(stats))}catch(e){}
+}
+
+// ---------- 手牌 / 范围 ----------
+function label(r1,r2,suited){ // r1,r2 为 RANKS 下标, 小=大牌
+  if(r1===r2)return RANKS[r1]+RANKS[r2];
+  const hi=Math.min(r1,r2),lo=Math.max(r1,r2);
+  return RANKS[hi]+RANKS[lo]+(suited?'s':'o');
+}
+function parseRange(str){
+  const set=new Set();
+  str.split(/[\s,]+/).filter(Boolean).forEach(t=>{
+    const plus=t.endsWith('+'); if(plus)t=t.slice(0,-1);
+    const a=RANKS.indexOf(t[0]),b=RANKS.indexOf(t[1]),k=t[2];
+    if(a===b){ // 对子
+      for(let i=plus?0:a;i<=a;i++)set.add(RANKS[i]+RANKS[i]);
+      if(!plus)set.add(t.slice(0,2));
+    }else{
+      const end=plus?a+1:b; // 大牌固定, 小牌从 b 向上到 a+1
+      for(let i=b;i>=end;i--)set.add(RANKS[a]+RANKS[i]+k);
+    }
+  });
+  return set;
+}
+const RFI={
+  'UTG':'66+ A3s+ ATo+ KTs+ KQo QTs+ JTs T9s 98s 87s 76s',
+  'HJ':'44+ A2s+ ATo+ KTs+ KJo+ QTs+ QJo JTs T9s 98s 87s 76s 65s',
+  'CO':'22+ A2s+ A9o+ K8s+ KTo+ Q9s+ QTo+ J9s+ JTo T9s 98s 87s 76s 65s 54s',
+  'BTN':'22+ A2s+ A2o+ K2s+ K8o+ Q4s+ Q9o+ J6s+ J9o+ T6s+ T9o 96s+ 98o 85s+ 87o 75s+ 64s+ 54s 53s 43s',
+  'SB':'22+ A2s+ A3o+ K3s+ K9o+ Q6s+ QTo+ J7s+ J9o+ T7s+ T9o 97s+ 87s 86s 76s 75s 65s 64s 54s'
+};
+const RFI_SET={};for(const p in RFI)RFI_SET[p]=parseRange(RFI[p]);
+const ALL=[];
+for(let i=0;i<13;i++)for(let j=0;j<13;j++)ALL.push({i,j,l:i===j?RANKS[i]+RANKS[i]:i<j?RANKS[i]+RANKS[j]+'s':RANKS[j]+RANKS[i]+'o'});
+// 网格: 行=第一张, 列=第二张, i<j 同花, i>j 杂色
+
+function dealHand(){
+  const r1=rnd(13),r2=rnd(13);
+  const suited=r1!==r2&&Math.random()<0.5;
+  const s1=rnd(4);
+  let s2=suited?s1:(r1===r2?(s1+1+rnd(3))%4:(s1+1+rnd(3))%4);
+  return {r1,r2,suited,l:label(r1,r2,suited),s1,s2};
+}
+function handHTML(h){
+  const c=(r,s)=>`<span class="${s===1||s===2?'red':''}">${RANKS[r]}${SUITS[s]}</span>`;
+  const a=Math.min(h.r1,h.r2)===h.r1?[h.r1,h.s1,h.r2,h.s2]:[h.r2,h.s2,h.r1,h.s1];
+  return c(a[0],a[1])+' '+c(a[2],a[3]);
+}
+function gridHTML(set,cur){
+  return '<div class="grid">'+ALL.map(x=>`<div class="${set.has(x.l)?'in':''} ${x.l===cur?'cur':''}">${x.l}</div>`).join('')+'</div>';
+}
+
+// ---------- 牌力排名（Chen 公式）用于短码推挤 ----------
+function chen(i,j,suited){
+  const v=k=>[10,8,7,6][k]??(RANKS.length-k+1)/2; // A=10 K=8 Q=7 J=6, T=5 ... 2=1
+  const val=r=>r<4?[10,8,7,6][r]:(13-r+1)/2; // T(4)=5,9=4.5,...2(12)=1
+  let hi=Math.min(i,j),lo=Math.max(i,j),s=val(hi);
+  if(i===j)return Math.max(5,s*2);
+  if(suited)s+=2;
+  const gap=lo-hi-1;
+  s-= gap===0?0:gap===1?1:gap===2?2:gap===3?4:5;
+  if(gap<=1&&lo>=3)s+=1; // 双方低于 Q
+  return Math.ceil(s);
+}
+const RANKED=(()=>{
+  const list=ALL.map(x=>({l:x.l,score:chen(x.i,x.j,x.i<x.j)+(x.i===x.j?0.1*(12-x.i)/12:0)+(x.i<x.j?0.01:0)-0.001*(x.i+x.j),w:x.i===x.j?6:x.i<x.j?4:12}));
+  list.sort((a,b)=>b.score-a.score);
+  let acc=0;list.forEach(x=>{acc+=x.w;x.pct=acc/1326*100});
+  return Object.fromEntries(list.map(x=>[x.l,x.pct]));
+})();
+const PUSH={ // 各位置各筹码深度(bb)的推挤比例 %
+  'BTN':{3:90,4:85,5:80,6:72,7:65,8:58,9:52,10:47,12:38,15:30},
+  'SB': {3:100,4:95,5:90,6:82,7:75,8:68,9:62,10:57,12:48,15:38},
+  'CO': {3:60,4:50,5:42,6:36,7:31,8:27,9:24,10:22,12:17,15:13},
+  'UTG':{3:40,4:32,5:26,6:22,7:19,8:17,9:15,10:13,12:10,15:8}
+};
+
+// ---------- 模块 ----------
+const mods={};
+let cur='terms',state={};
+
+// 1) 数学
+mods.math={name:'数学直觉',render(){
+  const t=pick(['odds','odds','outs','mdf']);
+  const P=pick([30,40,60,80,100,120,150,200]);
+  const b=pick([[1,3],[1,2],[2,3],[3,4],[1,1],[3,2]]);
+  const B=Math.round(P*b[0]/b[1]);
+  let q,ans,tol,expl;
+  if(t==='odds'){
+    ans=B/(P+2*B)*100;tol=2;
+    q=`底池 ${P}，对手下注 ${B}。你跟注至少需要多少胜率（%）才不亏？`;
+    expl=`需要胜率 = 跟注额 ÷ (底池 + 对手下注 + 跟注) = ${B} ÷ ${P+2*B} = ${ans.toFixed(1)}%`;
+  }else if(t==='outs'){
+    const o=pick([4,6,8,9,12,15]),flop=Math.random()<0.6;
+    ans=flop?(1-(47-o)/47*(46-o)/46)*100:o/46*100;tol=3;
+    q=`${flop?'翻牌圈':'转牌圈'}你有 ${o} 张 outs。${flop?'到河牌前':'到河牌'}中牌的概率大约是多少（%）？`;
+    expl=`${flop?`翻牌圈：约 outs×4 = ${o*4}%，精确值 ${ans.toFixed(1)}%`:`转牌圈：约 outs×2 = ${o*2}%，精确值 ${ans.toFixed(1)}%`}`;
+  }else{
+    ans=P/(P+B)*100;tol=2;
+    q=`底池 ${P}，你下注 ${B}。对手至少要防守多少比例（%）才能让你的纯诈唬不赚钱？（最小防守频率 MDF）`;
+    expl=`MDF = 底池 ÷ (底池 + 下注) = ${P} ÷ ${P+B} = ${ans.toFixed(1)}%`;
+  }
+  state={ans,tol,expl,q};
+  return `<div class="card"><p class="q">${q}</p>
+  <input type="number" id="in" placeholder="输入百分数，如 33" autofocus>
+  <button class="go" id="ok">提交</button><div id="fb"></div></div>`;
+},bind(){
+  const submit=()=>{
+    const v=parseFloat($('in').value);if(isNaN(v))return;
+    const ok=Math.abs(v-state.ans)<=state.tol;
+    rec('math',ok,state.q+' → 正确 '+state.ans.toFixed(1)+'%');
+    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✓ 正确':'✗ 不对'}（允许误差 ±${state.tol}）<br>${state.expl}</div><button class="next" id="nx">下一题</button>`;
+    $('ok').classList.add('hide');$('nx').onclick=()=>show();$('nx').focus();
+  };
+  $('ok').onclick=submit;$('in').onkeydown=e=>{if(e.key==='Enter')submit()};
+}};
+
+// 2) 翻前开池
+mods.rfi={name:'翻前开池',render(){
+  const pos=pick(Object.keys(RFI));
+  let h=dealHand();
+  // 让约一半的题落在范围边缘附近, 提高训练效率
+  state={pos,h};
+  return `<div class="card"><div class="meta">6 人桌 · 100bb · 前面全弃牌 · 你在 <b>${pos}</b></div>
+  <div class="hand">${handHTML(h)}</div>
+  <div class="row"><button id="f">弃牌</button><button id="r">加注开池</button></div><div id="fb"></div></div>`;
+},bind(){
+  const ans=c=>{
+    const {pos,h}=state,inR=RFI_SET[pos].has(h.l),ok=(c==='r')===inR;
+    rec('rfi',ok,`${pos} ${h.l} → 应${inR?'加注':'弃牌'}`);
+    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✓ 正确':'✗ 不对'}：${pos} 的 ${h.l} 应<b>${inR?'加注':'弃牌'}</b>。<br>该位置开池范围约 ${(rangePct(RFI_SET[pos])).toFixed(0)}% 的牌。${gridHTML(RFI_SET[pos],h.l)}</div><button class="next" id="nx">下一手</button>`;
+    document.querySelectorAll('.row button').forEach(b=>b.disabled=true);$('nx').onclick=()=>show();$('nx').focus();
+  };
+  $('f').onclick=()=>ans('f');$('r').onclick=()=>ans('r');
+}};
+function rangePct(set){let w=0;set.forEach(l=>{w+=l.length===2?6:l[2]==='s'?4:12});return w/1326*100}
+
+// 3) 短码推挤
+mods.push={name:'短码推挤',render(){
+  const pos=pick(Object.keys(PUSH)),stack=pick(Object.keys(PUSH.BTN).map(Number));
+  const h=dealHand();
+  state={pos,stack,h};
+  return `<div class="card"><div class="meta">锦标赛 · 前面全弃牌 · 你在 <b>${pos}</b> · 有效筹码 <b>${stack}bb</b><br>只有推全下和弃牌两个选项</div>
+  <div class="hand">${handHTML(h)}</div>
+  <div class="row"><button id="f">弃牌</button><button id="r">全下</button></div><div id="fb"></div></div>`;
+},bind(){
+  const ans=c=>{
+    const {pos,stack,h}=state,lim=PUSH[pos][stack],p=RANKED[h.l];
+    const border=Math.abs(p-lim)<=3,push=p<=lim;
+    const ok=border||((c==='r')===push);
+    rec('push',ok,`${pos} ${stack}bb ${h.l}（排名前${p.toFixed(0)}%，线${lim}%）→ 应${push?'推':'弃'}`);
+    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✓ 可以':'✗ 不对'}：${pos} ${stack}bb 大约推前 <b>${lim}%</b> 的牌。${h.l} 排在前 ${p.toFixed(0)}%，${border?'属于<b>边缘牌</b>，推或弃都可以':'应<b>'+(push?'全下':'弃牌')+'</b>'}。</div><button class="next" id="nx">下一手</button>`;
+    document.querySelectorAll('.row button').forEach(b=>b.disabled=true);$('nx').onclick=()=>show();$('nx').focus();
+  };
+  $('f').onclick=()=>ans('f');$('r').onclick=()=>ans('r');
+}};
+
+// 范围表（按最早可开池位置上色）
+let chartMode='all';
+const POS_ORDER=['UTG','HJ','CO','BTN'];
+const POS_COLOR={UTG:'#2d9d6a',HJ:'#7cc65a',CO:'#d4c245',BTN:'#e08a3c'};
+mods.chart={name:'范围表',render(){
+  const earliest=l=>POS_ORDER.find(p=>RFI_SET[p].has(l));
+  const sb=chartMode==='SB';
+  const cells=ALL.map(x=>{
+    const e=sb?(RFI_SET.SB.has(x.l)?'SB':null):earliest(x.l);
+    const bg=e==='SB'?'#5aa0e0':e?POS_COLOR[e]:'#22352b';
+    return `<div data-l="${x.l}" style="background:${bg};color:${e?'#10200f':'#5d7666'}">${x.l}</div>`;
+  }).join('');
+  const toggle=`<div class="row" style="margin:8px 0"><button data-m="all" style="${sb?'':'background:#e0b04a;color:#1a1405'}">前四个位置</button><button data-m="SB" style="${sb?'background:#e0b04a;color:#1a1405':''}">小盲 SB</button></div>`;
+  const legend=sb?`<span style="display:inline-block;margin-right:8px"><i style="display:inline-block;width:12px;height:12px;background:#5aa0e0;border-radius:3px;vertical-align:-1px"></i> 小盲加注</span><span><i style="display:inline-block;width:12px;height:12px;background:#22352b;border-radius:3px;vertical-align:-1px"></i> 弃牌</span>`:POS_ORDER.map(p=>`<span style="display:inline-block;margin:2px 8px 2px 0"><i style="display:inline-block;width:12px;height:12px;background:${POS_COLOR[p]};border-radius:3px;vertical-align:-1px"></i> ${p}${p==='UTG'?'起':'起'}</span>`).join('')
+    +`<span><i style="display:inline-block;width:12px;height:12px;background:#22352b;border-radius:3px;vertical-align:-1px"></i> 都弃牌</span>`;
+  return `<div class="card"><b>开池范围总表</b>（前面没人入池时，6 人桌 100bb）
+  <p class="meta" style="text-align:left;margin:6px 0">颜色 = 从这个位置起可以加注开池，更靠后的位置也可以。<br>对角线是对子，右上是同花（s），左下是杂色（o）。</p>
+  ${toggle}
+  <div>${legend}</div>
+  <div class="grid big" id="cg">${cells}</div>
+  <div id="cinfo" class="fb ok" style="margin-top:12px">点任意格子，看它在各位置怎么打</div>
+  <p class="meta" style="text-align:left;margin-top:10px">各位置玩多少手牌：UTG ${rangePct(RFI_SET.UTG).toFixed(0)}% · HJ ${rangePct(RFI_SET.HJ).toFixed(0)}% · CO ${rangePct(RFI_SET.CO).toFixed(0)}% · BTN ${rangePct(RFI_SET.BTN).toFixed(0)}% · SB ${rangePct(RFI_SET.SB).toFixed(0)}%</p></div>`;
+},bind(){
+  document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{chartMode=b.dataset.m;show()});
+  $('cg').querySelectorAll('div').forEach(d=>d.onclick=()=>{
+    const l=d.dataset.l;
+    $('cinfo').innerHTML=`<b>${l}</b>：`+[...POS_ORDER,'SB'].map(p=>`${p} ${RFI_SET[p].has(l)?'✅加注':'❌弃牌'}`).join('　');
+  });
+}};
+
+// 4) 术语闪卡
+const TERMS=[
+['翻前 preflop','发完两张底牌、还没发公共牌的阶段'],
+['翻牌 flop','前三张公共牌'],
+['转牌 turn','第四张公共牌'],
+['河牌 river','第五张，也是最后一张公共牌'],
+['翻后 postflop','翻牌之后的所有阶段'],
+['底池 pot','桌上所有人已投入的筹码总和'],
+['盲注 blinds','由小盲和大盲支付的强制下注，用来制造底池'],
+['bb（大盲）','筹码单位。100bb 就是有 100 个大盲那么多筹码'],
+['ante（前注）','比赛中期开始，每人都要交的额外小额强制下注'],
+['UTG','大盲左边第一个，翻前第一个行动，位置最不利'],
+['HJ（劫位）/ CO（关煞位）','中间位置，越靠后越有利'],
+['BTN（按钮位）','庄家位，翻后最后一个行动，位置最有利'],
+['SB / BB','小盲 / 大盲。翻前很晚行动，翻后反而最早行动'],
+['有位置 IP','翻后你比对手晚行动'],
+['没位置 OOP','翻后你比对手早行动'],
+['弃牌 fold','放弃这手牌'],
+['过牌 check','没人下注时，选择不下注、继续'],
+['跟注 call','付出等额筹码继续'],
+['下注 / 加注 bet / raise','主动投入更多筹码'],
+['开池 open / RFI','前面没人主动入池时，你第一个加注'],
+['3-bet','对别人的开池再加注（翻前的第二次加注）'],
+['4-bet','对 3-bet 再加注'],
+['全下 all-in','把所有筹码推进去'],
+['c-bet（持续下注）','翻前是加注者，翻牌后继续下注'],
+['偷盲 steal','在后位加注，目的是赢走盲注'],
+['VPIP（入池率）','主动往底池投钱的手牌占比，衡量你打得松还是紧'],
+['同花 suited（s）','两张底牌花色相同，如 AKs'],
+['杂色 offsuit（o）','两张底牌花色不同，如 AKo'],
+['口袋对 pair','两张底牌点数相同，如 77'],
+['范围 range','在某个情境下你可能持有的所有牌的集合'],
+['价值下注 value bet','手牌比对手的跟注范围强，下注是为了多赢钱'],
+['诈唬 bluff','用弱牌下注，靠对手弃牌来赢'],
+['半诈唬 semi-bluff','用还没成牌的听牌下注，弃牌和中牌两条路都能赢'],
+['听牌 draw','现在还不是好牌，再来一张就成的牌，如同花听牌'],
+['outs','能让你成牌的剩余牌数。同花听牌有 9 张'],
+['慢打 slowplay','拿着强牌故意不加注，引对手投钱'],
+['胜率 equity','这手牌到摊牌时赢下底池的概率'],
+['底池赔率 pot odds','跟注要付的钱相对于能赢到的钱的比例，用来决定该不该跟'],
+['所需胜率','跟注至少要有的胜率，等于跟注额 ÷ 跟注后的总底池'],
+['EV（期望值）','某个决定长期平均能赚或亏多少，正数就是好决定'],
+['MDF（最小防守频率）','对手下注后你至少要继续的牌的比例，否则对方任意诈唬都赚钱。等于底池 ÷（底池+下注）'],
+['GTO（博弈论最优）','一种无法被针对的均衡打法，可当作"标准答案基线"'],
+['方差 variance','运气造成的短期波动，打得再对也会连输'],
+['MTT','多桌锦标赛，很多人报名，淘汰到最后一个人'],
+['ICM','把筹码换算成奖金价值的模型。筹码越多，每个筹码越不值钱，所以奖金压力下要打得更紧'],
+['泡沫期 bubble','再淘汰一个人就进入奖励圈的阶段，人人都怕出局'],
+['短码 short stack','筹码只有 15bb 以下，只能推全下或弃牌'],
+['push/fold','短码时只有推全下或弃牌两种选择的打法']
+];
+let tScore={};try{tScore=JSON.parse(localStorage.getItem('pokerTerms')||'{}')}catch(e){}
+mods.terms={name:'术语闪卡',render(){
+  const w=TERMS.map(t=>4-(tScore[t[0]]||0));
+  let r=Math.random()*w.reduce((a,b)=>a+b,0),i=0;
+  while(r>w[i]){r-=w[i];i++}
+  const rev=Math.random()<0.4; // 反向：给解释猜术语
+  const mastered=TERMS.filter(t=>(tScore[t[0]]||0)>=3).length;
+  state={t:TERMS[i]};
+  return `<div class="card"><div class="meta">已掌握 ${mastered} / ${TERMS.length}</div>
+  <p class="q" style="text-align:center;font-size:${rev?17:24}px">${rev?state.t[1]:state.t[0]}</p>
+  <button class="go" id="rv" style="width:100%">${rev?'显示术语':'显示解释'}</button>
+  <div id="fb"></div></div>`;
+},bind(){
+  const [term,mean]=state.t;
+  const rev=$('rv').textContent==='显示术语';
+  $('rv').onclick=()=>{
+    $('rv').classList.add('hide');
+    $('fb').innerHTML=`<div class="fb ok" style="font-size:17px"><b>${term}</b><br>${mean}</div>
+    <div class="row" style="margin-top:10px"><button id="no">还没记住</button><button id="yes">记住了</button></div>`;
+    const done=ok=>{
+      tScore[term]=Math.max(0,Math.min(3,(tScore[term]||0)+(ok?1:-2)));
+      try{localStorage.setItem('pokerTerms',JSON.stringify(tScore))}catch(e){}
+      rec('terms',ok,term);show();
+    };
+    $('yes').onclick=()=>done(true);$('no').onclick=()=>done(false);
+  };
+}};
+
+// 5) 统计
+mods.stats={name:'统计',render(){
+  const names={terms:'术语闪卡',math:'数学直觉',rfi:'翻前开池',push:'短码推挤'};
+  const rows=Object.keys(names).map(k=>{const s=stats[k]||{n:0,c:0};return `<tr><td>${names[k]}</td><td>${s.n}</td><td>${s.n?(s.c/s.n*100).toFixed(0)+'%':'-'}</td></tr>`}).join('');
+  const miss=Object.keys(names).flatMap(k=>(stats[k]?.miss||[]).slice(0,5).map(m=>`<li>${names[k]}：${m}</li>`)).join('');
+  return `<div class="card"><table><tr><th>模块</th><th>做题数</th><th>正确率</th></tr>${rows}</table></div>
+  <div class="card"><b>最近错题</b><ul>${miss||'<li>暂无</li>'}</ul><button class="next" id="clr" style="background:#2c4436;color:#e8f0ea">清空记录</button></div>`;
+},bind(){$('clr').onclick=()=>{stats={};try{localStorage.removeItem('pokerStats')}catch(e){}show()}}};
+
+function show(){
+  $('nav').innerHTML=Object.keys(mods).map(k=>`<button class="${k===cur?'on':''}" data-k="${k}">${mods[k].name}</button>`).join('');
+  $('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{cur=b.dataset.k;show()});
+  $('view').innerHTML=mods[cur].render();mods[cur].bind();
+}
+show();
+</script>
+</body>
+</html>
