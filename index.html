@@ -1154,7 +1154,7 @@ mods.stats={render(){const keys=['terms','math','rfi','push'];const rows=keys.ma
 function setLanguage(next){if(!Object.hasOwn(I18N,next))return;lang=next;try{localStorage.setItem('pokerLang',lang)}catch(e){}show()}
 function show(){
   document.documentElement.lang=lang;document.title=tr('title');$('heading').textContent='♠ '+tr('title');$('note').textContent=tr('note');
-  $('languages').innerHTML=Object.keys(I18N).map(code=>`<button data-lang="${code}" aria-pressed="${code===lang}">${I18N[code][{'zh-CN':'languageZh',en:'languageEn',ja:'languageJa'}[code]]}</button>`).join(' / ');
+  $('languages').innerHTML=Object.keys(I18N).map(code=>`<button data-lang="${code}" aria-pressed="${code===lang}">${I18N[code][{'zh-CN':'languageZh',en:'languageEn',ja:'languageJa'}[code]]}</button>`).join('');
   $('languages').querySelectorAll('button').forEach(b=>b.onclick=()=>setLanguage(b.dataset.lang));
   $('nav').innerHTML=Object.keys(mods).map(k=>`<button class="${k===cur?'on':''}" data-k="${k}">${tr(k)}</button>`).join('');
   $('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{cur=b.dataset.k;show()});$('view').innerHTML=mods[cur].render();mods[cur].bind();
