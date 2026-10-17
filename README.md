@@ -1,6 +1,10 @@
 # 德扑训练器
 
+**中文** · [English](README.en.md) · [日本語](README.ja.md)
+
 单文件网页版德州扑克练习册，手机上打开就能刷题。
+
+👉 **[在线体验](https://youkou970701.github.io/poker-trainer/)**（支持中文 / English / 日本語）
 
 - **数学直觉**：底池赔率、outs、MDF
 - **翻前开池**：各位置该不该开池

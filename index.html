@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>德扑训练器</title>
+<title>Poker Trainer</title>
 <style>
 :root{--bg:#0f1a14;--card:#182820;--fg:#e8f0ea;--mute:#8aa394;--ok:#4cc38a;--bad:#e5645c;--acc:#e0b04a}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,"PingFang SC",sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,"PingFang SC","Hiragino Sans","Yu Gothic",sans-serif}
 main{max-width:640px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:8px 0 12px}
 nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
-nav button{flex:1;padding:10px 6px;border:1px solid #2c4436;background:var(--card);color:var(--fg);border-radius:8px;cursor:pointer;font-size:14px}
-nav button.on{background:var(--acc);color:#1a1405;border-color:var(--acc)}
+#languages{display:flex;justify-content:flex-end;gap:6px}
+#languages button{flex:0 1 auto;font-size:13px;padding:5px 10px}
+nav button,#languages button{flex:1;padding:10px 6px;border:1px solid #2c4436;background:var(--card);color:var(--fg);border-radius:8px;cursor:pointer;font-size:14px}
+nav button.on,#languages button[aria-pressed=true]{background:var(--acc);color:#1a1405;border-color:var(--acc)}
 .card{background:var(--card);border-radius:12px;padding:18px;margin-bottom:12px}
 .q{font-size:18px;margin:0 0 14px}
 .hand{font-size:44px;text-align:center;letter-spacing:6px;margin:8px 0}
@@ -42,13 +44,14 @@ td,th{padding:8px 4px;text-align:left;border-bottom:1px solid #2c4436}
 </head>
 <body>
 <main>
-<h1>♠ 德扑训练器</h1>
+<div id="languages"></div>
+<h1 id="heading"></h1>
 <nav id="nav"></nav>
 <div id="view"></div>
-<p class="note">范围为 6 人桌 100bb 的近似 GTO 基线，用来建立直觉，不是求解器精确输出。短码推挤按牌力排名和筹码深度估算，边缘牌两种选择都算对。</p>
+<p class="note" id="note"></p>
 </main>
 <script>
-// ---------- 通用 ----------
+
 const RANKS='AKQJT98765432';
 const SUITS=['♠','♥','♦','♣'];
 const rnd=n=>Math.floor(Math.random()*n);
@@ -63,8 +66,8 @@ function rec(mod,ok,info){
   try{localStorage.setItem('pokerStats',JSON.stringify(stats))}catch(e){}
 }
 
-// ---------- 手牌 / 范围 ----------
-function label(r1,r2,suited){ // r1,r2 为 RANKS 下标, 小=大牌
+
+function label(r1,r2,suited){
   if(r1===r2)return RANKS[r1]+RANKS[r2];
   const hi=Math.min(r1,r2),lo=Math.max(r1,r2);
   return RANKS[hi]+RANKS[lo]+(suited?'s':'o');
@@ -74,11 +77,11 @@ function parseRange(str){
   str.split(/[\s,]+/).filter(Boolean).forEach(t=>{
     const plus=t.endsWith('+'); if(plus)t=t.slice(0,-1);
     const a=RANKS.indexOf(t[0]),b=RANKS.indexOf(t[1]),k=t[2];
-    if(a===b){ // 对子
+    if(a===b){
       for(let i=plus?0:a;i<=a;i++)set.add(RANKS[i]+RANKS[i]);
       if(!plus)set.add(t.slice(0,2));
     }else{
-      const end=plus?a+1:b; // 大牌固定, 小牌从 b 向上到 a+1
+      const end=plus?a+1:b;
       for(let i=b;i>=end;i--)set.add(RANKS[a]+RANKS[i]+k);
     }
   });
@@ -94,7 +97,7 @@ const RFI={
 const RFI_SET={};for(const p in RFI)RFI_SET[p]=parseRange(RFI[p]);
 const ALL=[];
 for(let i=0;i<13;i++)for(let j=0;j<13;j++)ALL.push({i,j,l:i===j?RANKS[i]+RANKS[i]:i<j?RANKS[i]+RANKS[j]+'s':RANKS[j]+RANKS[i]+'o'});
-// 网格: 行=第一张, 列=第二张, i<j 同花, i>j 杂色
+
 
 function dealHand(){
   const r1=rnd(13),r2=rnd(13);
@@ -112,16 +115,16 @@ function gridHTML(set,cur){
   return '<div class="grid">'+ALL.map(x=>`<div class="${set.has(x.l)?'in':''} ${x.l===cur?'cur':''}">${x.l}</div>`).join('')+'</div>';
 }
 
-// ---------- 牌力排名（Chen 公式）用于短码推挤 ----------
+
 function chen(i,j,suited){
-  const v=k=>[10,8,7,6][k]??(RANKS.length-k+1)/2; // A=10 K=8 Q=7 J=6, T=5 ... 2=1
-  const val=r=>r<4?[10,8,7,6][r]:(13-r+1)/2; // T(4)=5,9=4.5,...2(12)=1
+  const v=k=>[10,8,7,6][k]??(RANKS.length-k+1)/2;
+  const val=r=>r<4?[10,8,7,6][r]:(13-r+1)/2;
   let hi=Math.min(i,j),lo=Math.max(i,j),s=val(hi);
   if(i===j)return Math.max(5,s*2);
   if(suited)s+=2;
   const gap=lo-hi-1;
   s-= gap===0?0:gap===1?1:gap===2?2:gap===3?4:5;
-  if(gap<=1&&lo>=3)s+=1; // 双方低于 Q
+  if(gap<=1&&lo>=3)s+=1;
   return Math.ceil(s);
 }
 const RANKED=(()=>{
@@ -130,215 +133,1030 @@ const RANKED=(()=>{
   let acc=0;list.forEach(x=>{acc+=x.w;x.pct=acc/1326*100});
   return Object.fromEntries(list.map(x=>[x.l,x.pct]));
 })();
-const PUSH={ // 各位置各筹码深度(bb)的推挤比例 %
+const PUSH={
   'BTN':{3:90,4:85,5:80,6:72,7:65,8:58,9:52,10:47,12:38,15:30},
   'SB': {3:100,4:95,5:90,6:82,7:75,8:68,9:62,10:57,12:48,15:38},
   'CO': {3:60,4:50,5:42,6:36,7:31,8:27,9:24,10:22,12:17,15:13},
   'UTG':{3:40,4:32,5:26,6:22,7:19,8:17,9:15,10:13,12:10,15:8}
 };
 
-// ---------- 模块 ----------
+
+const I18N={
+  "zh-CN": {
+    "title": "德扑训练器",
+    "note": "范围为 6 人桌 100bb 的近似 GTO 基线，用来建立直觉，不是求解器精确输出。短码推挤按牌力排名和筹码深度估算，边缘牌两种选择都算对。",
+    "math": "数学直觉",
+    "rfi": "翻前开池",
+    "push": "短码推挤",
+    "chart": "范围表",
+    "terms": "术语闪卡",
+    "stats": "统计",
+    "oddsQ": "底池 {P}，对手下注 {B}。你跟注至少需要多少胜率（%）才不亏？",
+    "oddsE": "需要胜率 = 跟注额 ÷ (底池 + 对手下注 + 跟注) = {B} ÷ {total} = {ans}%",
+    "outsQ": "{street}你有 {o} 张 outs。到河牌中牌的概率大约是多少（%）？",
+    "flop": "翻牌圈",
+    "turn": "转牌圈",
+    "outsE": "{street}：约 outs×{factor} = {approx}%，精确值 {ans}%",
+    "mdfQ": "底池 {P}，你下注 {B}。对手至少要防守多少比例（%）才能让你的纯诈唬不赚钱？（最小防守频率 MDF）",
+    "mdfE": "MDF = 底池 ÷ (底池 + 下注) = {P} ÷ {total} = {ans}%",
+    "placeholder": "输入百分数，如 33",
+    "submit": "提交",
+    "correct": "✓ 正确",
+    "wrong": "✗ 不对",
+    "acceptable": "✓ 可以",
+    "tolerance": "允许误差 ±{tol}",
+    "nextQ": "下一题",
+    "nextHand": "下一手",
+    "rfiMeta": "6 人桌 · 100bb · 前面全弃牌 · 你在 <b>{pos}</b>",
+    "fold": "弃牌",
+    "raise": "加注",
+    "open": "加注开池",
+    "allin": "全下",
+    "rfiAnswer": "{pos} 的 {hand} 应<b>{action}</b>。该位置开池范围约 {pct}% 的牌。",
+    "pushMeta": "锦标赛 · 前面全弃牌 · 你在 <b>{pos}</b> · 有效筹码 <b>{stack}bb</b><br>只有推全下和弃牌两个选项",
+    "pushAnswer": "{pos} {stack}bb 大约推前 <b>{lim}%</b> 的牌。{hand} 排在前 {rank}%，{decision}。",
+    "border": "属于<b>边缘牌</b>，推或弃都可以",
+    "decision": "应<b>{action}</b>",
+    "fourPositions": "前四个位置",
+    "smallBlind": "小盲 SB",
+    "sbRaise": "小盲加注",
+    "fromPos": "{pos}起",
+    "foldAll": "都弃牌",
+    "chartTitle": "开池范围总表",
+    "chartContext": "前面没人入池时，6 人桌 100bb",
+    "chartHelp": "颜色 = 从这个位置起可以加注开池，更靠后的位置也可以。<br>对角线是对子，右上是同花（s），左下是杂色（o）。",
+    "chartClick": "点任意格子，看它在各位置怎么打",
+    "chartPct": "各位置玩多少手牌：",
+    "mastered": "已掌握 {n} / {total}",
+    "showTerm": "显示术语",
+    "showMeaning": "显示解释",
+    "notYet": "还没记住",
+    "remembered": "记住了",
+    "module": "模块",
+    "attempts": "做题数",
+    "accuracy": "正确率",
+    "recentMisses": "最近错题",
+    "none": "暂无",
+    "clear": "清空记录",
+    "mathMiss": "{question} → 正确 {ans}%",
+    "rfiMiss": "{pos} {hand} → 应{action}",
+    "pushMiss": "{pos} {stack}bb {hand}（排名前{rank}%，线{lim}%）→ 应{action}",
+    "languageZh": "中文",
+    "languageEn": "英语",
+    "languageJa": "日语"
+  },
+  "en": {
+    "title": "Poker Trainer",
+    "note": "Ranges are approximate GTO baselines for 6-max 100bb, designed to build intuition, not exact solver output. Short-stack shoves use hand ranking and stack depth; either choice is accepted for borderline hands.",
+    "math": "Poker Math",
+    "rfi": "Preflop RFI",
+    "push": "Push/Fold",
+    "chart": "Range Chart",
+    "terms": "Term Flashcards",
+    "stats": "Statistics",
+    "oddsQ": "Pot {P}, opponent bets {B}. What minimum equity (%) makes a call break even?",
+    "oddsE": "Required equity = call ÷ (pot + bet + call) = {B} ÷ {total} = {ans}%",
+    "outsQ": "On the {street}, you have {o} outs. What is the approximate chance (%) of hitting by the river?",
+    "flop": "flop",
+    "turn": "turn",
+    "outsE": "{street}: roughly outs × {factor} = {approx}%; exact value {ans}%",
+    "mdfQ": "Pot {P}, you bet {B}. What minimum defense frequency (%) prevents your pure bluffs from profiting? (MDF)",
+    "mdfE": "MDF = pot ÷ (pot + bet) = {P} ÷ {total} = {ans}%",
+    "placeholder": "Enter a percentage, e.g. 33",
+    "submit": "Submit",
+    "correct": "✓ Correct",
+    "wrong": "✗ Incorrect",
+    "acceptable": "✓ Accepted",
+    "tolerance": "Tolerance ±{tol}",
+    "nextQ": "Next question",
+    "nextHand": "Next hand",
+    "rfiMeta": "6-max · 100bb · Folded to you in <b>{pos}</b>",
+    "fold": "Fold",
+    "raise": "Raise",
+    "open": "Open-raise",
+    "allin": "All-in",
+    "rfiAnswer": "{hand} in {pos}: <b>{action}</b>. Open roughly {pct}% of hands from this position.",
+    "pushMeta": "Tournament · Folded to you in <b>{pos}</b> · Effective stack <b>{stack}bb</b><br>Choose all-in or fold only",
+    "pushAnswer": "In {pos} at {stack}bb, shove roughly the top <b>{lim}%</b>. {hand} ranks in the top {rank}%; {decision}.",
+    "border": "a <b>borderline hand</b>, so either shove or fold is accepted",
+    "decision": "choose <b>{action}</b>",
+    "fourPositions": "First four positions",
+    "smallBlind": "Small blind (SB)",
+    "sbRaise": "SB raise",
+    "fromPos": "{pos} onward",
+    "foldAll": "Fold in all positions",
+    "chartTitle": "Opening ranges",
+    "chartContext": "Folded to you, 6-max 100bb",
+    "chartHelp": "Color = earliest position to open; later positions may open too.<br>Pairs are on the diagonal, suited hands (s) above, offsuit hands (o) below.",
+    "chartClick": "Click a cell to see each position’s action",
+    "chartPct": "Hands opened by position: ",
+    "mastered": "Mastered {n} / {total}",
+    "showTerm": "Show term",
+    "showMeaning": "Show definition",
+    "notYet": "Not yet",
+    "remembered": "Remembered",
+    "module": "Module",
+    "attempts": "Attempts",
+    "accuracy": "Accuracy",
+    "recentMisses": "Recent mistakes",
+    "none": "None yet",
+    "clear": "Clear history",
+    "mathMiss": "{question} → Correct: {ans}%",
+    "rfiMiss": "{pos} {hand} → {action}",
+    "pushMiss": "{pos} {stack}bb {hand} (top {rank}%, cutoff {lim}%) → {action}",
+    "languageZh": "Chinese",
+    "languageEn": "EN",
+    "languageJa": "Japanese"
+  },
+  "ja": {
+    "title": "ポーカートレーナー",
+    "note": "レンジは6人卓・100bbの近似GTO基準です。直感を養うためのもので、ソルバーの厳密な解ではありません。ショートスタックはハンド順位とスタックで推定し、境界のハンドはどちらも正解とします。",
+    "math": "ポーカー数学",
+    "rfi": "プリフロップRFI",
+    "push": "プッシュ / フォールド",
+    "chart": "レンジ表",
+    "terms": "用語フラッシュカード",
+    "stats": "成績",
+    "oddsQ": "ポットは{P}、相手のベットは{B}です。損をしないコールに必要な最低勝率（%）は？",
+    "oddsE": "必要勝率 = コール額 ÷（ポット＋ベット＋コール）= {B} ÷ {total} = {ans}%",
+    "outsQ": "{street}でアウツは{o}枚です。リバーまでに引く確率（%）は？",
+    "flop": "フロップ",
+    "turn": "ターン",
+    "outsE": "{street}：概算はアウツ×{factor} = {approx}%、正確な値は{ans}%です。",
+    "mdfQ": "ポットは{P}、あなたのベットは{B}です。純粋なブラフを利益にしない相手の最小防御頻度（MDF、%）は？",
+    "mdfE": "MDF = ポット ÷（ポット＋ベット）= {P} ÷ {total} = {ans}%",
+    "placeholder": "百分率を入力（例：33）",
+    "submit": "回答",
+    "correct": "✓ 正解",
+    "wrong": "✗ 不正解",
+    "acceptable": "✓ OK",
+    "tolerance": "許容誤差 ±{tol}",
+    "nextQ": "次の問題",
+    "nextHand": "次のハンド",
+    "rfiMeta": "6人卓 · 100bb · 全員フォールド · あなたは<b>{pos}</b>",
+    "fold": "フォールド",
+    "raise": "レイズ",
+    "open": "オープンレイズ",
+    "allin": "オールイン",
+    "rfiAnswer": "{pos}の{hand}は<b>{action}</b>です。この位置では約{pct}%をオープンします。",
+    "pushMeta": "トーナメント · 全員フォールド · あなたは<b>{pos}</b> · 有効スタック<b>{stack}bb</b><br>オールインかフォールドを選びます",
+    "pushAnswer": "{pos}・{stack}bbでは上位<b>{lim}%</b>をプッシュします。{hand}は上位{rank}%で、{decision}。",
+    "border": "<b>境界のハンド</b>なのでプッシュでもフォールドでも正解です",
+    "decision": "<b>{action}</b>します",
+    "fourPositions": "最初の4ポジション",
+    "smallBlind": "スモールブラインド（SB）",
+    "sbRaise": "SBでレイズ",
+    "fromPos": "{pos}以降",
+    "foldAll": "全位置でフォールド",
+    "chartTitle": "オープンレンジ一覧",
+    "chartContext": "全員フォールド、6人卓・100bb",
+    "chartHelp": "色はオープンできる最初の位置です。後ろの位置でもオープンできます。<br>対角線はペア、右上はスーテッド（s）、左下はオフスート（o）です。",
+    "chartClick": "マスを押すと各位置のアクションを確認できます",
+    "chartPct": "各位置のオープン率：",
+    "mastered": "習得済み {n} / {total}",
+    "showTerm": "用語を表示",
+    "showMeaning": "説明を表示",
+    "notYet": "まだ覚えていません",
+    "remembered": "覚えました",
+    "module": "モジュール",
+    "attempts": "回答数",
+    "accuracy": "正答率",
+    "recentMisses": "最近の間違い",
+    "none": "まだありません",
+    "clear": "履歴を消去",
+    "mathMiss": "{question} → 正解：{ans}%",
+    "rfiMiss": "{pos} {hand} → {action}です",
+    "pushMiss": "{pos} {stack}bb {hand}（上位{rank}%、基準{lim}%）→ {action}です",
+    "languageZh": "中国語",
+    "languageEn": "英語",
+    "languageJa": "日本語"
+  }
+};
+const TERMS={
+  "zh-CN": [
+    {
+      "id": "preflop",
+      "name": "翻前 preflop",
+      "meaning": "发完两张底牌、还没发公共牌的阶段"
+    },
+    {
+      "id": "flop",
+      "name": "翻牌 flop",
+      "meaning": "前三张公共牌"
+    },
+    {
+      "id": "turn",
+      "name": "转牌 turn",
+      "meaning": "第四张公共牌"
+    },
+    {
+      "id": "river",
+      "name": "河牌 river",
+      "meaning": "第五张，也是最后一张公共牌"
+    },
+    {
+      "id": "postflop",
+      "name": "翻后 postflop",
+      "meaning": "翻牌之后的所有阶段"
+    },
+    {
+      "id": "pot",
+      "name": "底池 pot",
+      "meaning": "桌上所有人已投入的筹码总和"
+    },
+    {
+      "id": "blinds",
+      "name": "盲注 blinds",
+      "meaning": "由小盲和大盲支付的强制下注，用来制造底池"
+    },
+    {
+      "id": "bb",
+      "name": "bb（大盲）",
+      "meaning": "筹码单位。100bb 就是有 100 个大盲那么多筹码"
+    },
+    {
+      "id": "ante",
+      "name": "ante（前注）",
+      "meaning": "比赛中期开始，每人都要交的额外小额强制下注"
+    },
+    {
+      "id": "utg",
+      "name": "UTG",
+      "meaning": "大盲左边第一个，翻前第一个行动，位置最不利"
+    },
+    {
+      "id": "hj-co",
+      "name": "HJ（劫位）/ CO（关煞位）",
+      "meaning": "中间位置，越靠后越有利"
+    },
+    {
+      "id": "btn",
+      "name": "BTN（按钮位）",
+      "meaning": "庄家位，翻后最后一个行动，位置最有利"
+    },
+    {
+      "id": "sb-bb",
+      "name": "SB / BB",
+      "meaning": "小盲 / 大盲。翻前很晚行动，翻后反而最早行动"
+    },
+    {
+      "id": "ip",
+      "name": "有位置 IP",
+      "meaning": "翻后你比对手晚行动"
+    },
+    {
+      "id": "oop",
+      "name": "没位置 OOP",
+      "meaning": "翻后你比对手早行动"
+    },
+    {
+      "id": "fold",
+      "name": "弃牌 fold",
+      "meaning": "放弃这手牌"
+    },
+    {
+      "id": "check",
+      "name": "过牌 check",
+      "meaning": "没人下注时，选择不下注、继续"
+    },
+    {
+      "id": "call",
+      "name": "跟注 call",
+      "meaning": "付出等额筹码继续"
+    },
+    {
+      "id": "bet-raise",
+      "name": "下注 / 加注 bet / raise",
+      "meaning": "主动投入更多筹码"
+    },
+    {
+      "id": "rfi",
+      "name": "开池 open / RFI",
+      "meaning": "前面没人主动入池时，你第一个加注"
+    },
+    {
+      "id": "three-bet",
+      "name": "3-bet",
+      "meaning": "对别人的开池再加注（翻前的第二次加注）"
+    },
+    {
+      "id": "four-bet",
+      "name": "4-bet",
+      "meaning": "对 3-bet 再加注"
+    },
+    {
+      "id": "all-in",
+      "name": "全下 all-in",
+      "meaning": "把所有筹码推进去"
+    },
+    {
+      "id": "c-bet",
+      "name": "c-bet（持续下注）",
+      "meaning": "翻前是加注者，翻牌后继续下注"
+    },
+    {
+      "id": "steal",
+      "name": "偷盲 steal",
+      "meaning": "在后位加注，目的是赢走盲注"
+    },
+    {
+      "id": "vpip",
+      "name": "VPIP（入池率）",
+      "meaning": "主动往底池投钱的手牌占比，衡量你打得松还是紧"
+    },
+    {
+      "id": "suited",
+      "name": "同花 suited（s）",
+      "meaning": "两张底牌花色相同，如 AKs"
+    },
+    {
+      "id": "offsuit",
+      "name": "杂色 offsuit（o）",
+      "meaning": "两张底牌花色不同，如 AKo"
+    },
+    {
+      "id": "pocket-pair",
+      "name": "口袋对 pair",
+      "meaning": "两张底牌点数相同，如 77"
+    },
+    {
+      "id": "range",
+      "name": "范围 range",
+      "meaning": "在某个情境下你可能持有的所有牌的集合"
+    },
+    {
+      "id": "value-bet",
+      "name": "价值下注 value bet",
+      "meaning": "手牌比对手的跟注范围强，下注是为了多赢钱"
+    },
+    {
+      "id": "bluff",
+      "name": "诈唬 bluff",
+      "meaning": "用弱牌下注，靠对手弃牌来赢"
+    },
+    {
+      "id": "semi-bluff",
+      "name": "半诈唬 semi-bluff",
+      "meaning": "用还没成牌的听牌下注，弃牌和中牌两条路都能赢"
+    },
+    {
+      "id": "draw",
+      "name": "听牌 draw",
+      "meaning": "现在还不是好牌，再来一张就成的牌，如同花听牌"
+    },
+    {
+      "id": "outs",
+      "name": "outs",
+      "meaning": "能让你成牌的剩余牌数。同花听牌有 9 张"
+    },
+    {
+      "id": "slowplay",
+      "name": "慢打 slowplay",
+      "meaning": "拿着强牌故意不加注，引对手投钱"
+    },
+    {
+      "id": "equity",
+      "name": "胜率 equity",
+      "meaning": "这手牌到摊牌时赢下底池的概率"
+    },
+    {
+      "id": "pot-odds",
+      "name": "底池赔率 pot odds",
+      "meaning": "跟注要付的钱相对于能赢到的钱的比例，用来决定该不该跟"
+    },
+    {
+      "id": "required-equity",
+      "name": "所需胜率",
+      "meaning": "跟注至少要有的胜率，等于跟注额 ÷ 跟注后的总底池"
+    },
+    {
+      "id": "ev",
+      "name": "EV（期望值）",
+      "meaning": "某个决定长期平均能赚或亏多少，正数就是好决定"
+    },
+    {
+      "id": "mdf",
+      "name": "MDF（最小防守频率）",
+      "meaning": "对手下注后你至少要继续的牌的比例，否则对方任意诈唬都赚钱。等于底池 ÷（底池+下注）"
+    },
+    {
+      "id": "gto",
+      "name": "GTO（博弈论最优）",
+      "meaning": "一种无法被针对的均衡打法，可当作\"标准答案基线\""
+    },
+    {
+      "id": "variance",
+      "name": "方差 variance",
+      "meaning": "运气造成的短期波动，打得再对也会连输"
+    },
+    {
+      "id": "mtt",
+      "name": "MTT",
+      "meaning": "多桌锦标赛，很多人报名，淘汰到最后一个人"
+    },
+    {
+      "id": "icm",
+      "name": "ICM",
+      "meaning": "把筹码换算成奖金价值的模型。筹码越多，每个筹码越不值钱，所以奖金压力下要打得更紧"
+    },
+    {
+      "id": "bubble",
+      "name": "泡沫期 bubble",
+      "meaning": "再淘汰一个人就进入奖励圈的阶段，人人都怕出局"
+    },
+    {
+      "id": "short-stack",
+      "name": "短码 short stack",
+      "meaning": "筹码只有 15bb 以下，只能推全下或弃牌"
+    },
+    {
+      "id": "push-fold",
+      "name": "push/fold",
+      "meaning": "短码时只有推全下或弃牌两种选择的打法"
+    }
+  ],
+  "en": [
+    {
+      "id": "preflop",
+      "name": "Preflop",
+      "meaning": "The stage after hole cards are dealt, before any community cards."
+    },
+    {
+      "id": "flop",
+      "name": "Flop",
+      "meaning": "The first three community cards."
+    },
+    {
+      "id": "turn",
+      "name": "Turn",
+      "meaning": "The fourth community card."
+    },
+    {
+      "id": "river",
+      "name": "River",
+      "meaning": "The fifth and final community card."
+    },
+    {
+      "id": "postflop",
+      "name": "Postflop",
+      "meaning": "All stages from the flop onward."
+    },
+    {
+      "id": "pot",
+      "name": "Pot",
+      "meaning": "All chips players have put into the middle."
+    },
+    {
+      "id": "blinds",
+      "name": "Blinds",
+      "meaning": "Forced bets paid by the small and big blind to create a pot."
+    },
+    {
+      "id": "bb",
+      "name": "bb (big blind)",
+      "meaning": "A chip unit. 100bb means one hundred big blinds."
+    },
+    {
+      "id": "ante",
+      "name": "Ante",
+      "meaning": "A small additional forced bet, usually introduced during a tournament."
+    },
+    {
+      "id": "utg",
+      "name": "Under the gun (UTG)",
+      "meaning": "First seat left of the big blind; acts first preflop and has the worst position."
+    },
+    {
+      "id": "hj-co",
+      "name": "Hijack (HJ) / Cutoff (CO)",
+      "meaning": "Middle and late positions. Acting later gives more information."
+    },
+    {
+      "id": "btn",
+      "name": "Button (BTN)",
+      "meaning": "The dealer seat. Acts last postflop and has the best position."
+    },
+    {
+      "id": "sb-bb",
+      "name": "SB / BB",
+      "meaning": "Small blind / big blind. Act late preflop, but early postflop."
+    },
+    {
+      "id": "ip",
+      "name": "In position (IP)",
+      "meaning": "You act after your opponent postflop."
+    },
+    {
+      "id": "oop",
+      "name": "Out of position (OOP)",
+      "meaning": "You act before your opponent postflop."
+    },
+    {
+      "id": "fold",
+      "name": "Fold",
+      "meaning": "Give up your hand."
+    },
+    {
+      "id": "check",
+      "name": "Check",
+      "meaning": "Pass the action without betting when no bet is facing you."
+    },
+    {
+      "id": "call",
+      "name": "Call",
+      "meaning": "Match the current bet to continue."
+    },
+    {
+      "id": "bet-raise",
+      "name": "Bet / Raise",
+      "meaning": "Put chips in first, or increase an existing bet."
+    },
+    {
+      "id": "rfi",
+      "name": "Open / Raise first in (RFI)",
+      "meaning": "Make the first raise when nobody has voluntarily entered the pot."
+    },
+    {
+      "id": "three-bet",
+      "name": "3-bet",
+      "meaning": "Re-raise an open raise; the second raise preflop."
+    },
+    {
+      "id": "four-bet",
+      "name": "4-bet",
+      "meaning": "Re-raise a 3-bet."
+    },
+    {
+      "id": "all-in",
+      "name": "All-in",
+      "meaning": "Bet all your remaining chips."
+    },
+    {
+      "id": "c-bet",
+      "name": "Continuation bet (c-bet)",
+      "meaning": "Bet on the flop after being the preflop raiser."
+    },
+    {
+      "id": "steal",
+      "name": "Steal",
+      "meaning": "Raise from late position to win the blinds."
+    },
+    {
+      "id": "vpip",
+      "name": "VPIP",
+      "meaning": "Percentage of hands in which you voluntarily put money in the pot; measures loose or tight play."
+    },
+    {
+      "id": "suited",
+      "name": "Suited (s)",
+      "meaning": "Hole cards of the same suit, such as AKs."
+    },
+    {
+      "id": "offsuit",
+      "name": "Offsuit (o)",
+      "meaning": "Hole cards of different suits, such as AKo."
+    },
+    {
+      "id": "pocket-pair",
+      "name": "Pocket pair",
+      "meaning": "Two hole cards of the same rank, such as 77."
+    },
+    {
+      "id": "range",
+      "name": "Range",
+      "meaning": "All hands a player might hold in a situation."
+    },
+    {
+      "id": "value-bet",
+      "name": "Value bet",
+      "meaning": "Bet a hand stronger than the calling range to win more chips."
+    },
+    {
+      "id": "bluff",
+      "name": "Bluff",
+      "meaning": "Bet a weak hand to win by making opponents fold."
+    },
+    {
+      "id": "semi-bluff",
+      "name": "Semi-bluff",
+      "meaning": "Bet a draw; you can win by a fold or by improving."
+    },
+    {
+      "id": "draw",
+      "name": "Draw",
+      "meaning": "A hand that needs another card to become strong, such as a flush draw."
+    },
+    {
+      "id": "outs",
+      "name": "Outs",
+      "meaning": "Remaining cards that improve your hand. A flush draw has 9 outs."
+    },
+    {
+      "id": "slowplay",
+      "name": "Slowplay",
+      "meaning": "Play a strong hand passively to encourage opponents to put money in."
+    },
+    {
+      "id": "equity",
+      "name": "Equity",
+      "meaning": "Your chance to win the pot at showdown."
+    },
+    {
+      "id": "pot-odds",
+      "name": "Pot odds",
+      "meaning": "The cost of calling compared with the pot you can win; helps decide whether to call."
+    },
+    {
+      "id": "required-equity",
+      "name": "Required equity",
+      "meaning": "The minimum equity for a profitable call: call amount divided by total pot after calling."
+    },
+    {
+      "id": "ev",
+      "name": "Expected value (EV)",
+      "meaning": "The average profit or loss of a decision over many repetitions."
+    },
+    {
+      "id": "mdf",
+      "name": "Minimum defense frequency (MDF)",
+      "meaning": "The share of your range that must continue to stop any bluff from profiting: pot divided by pot plus bet."
+    },
+    {
+      "id": "gto",
+      "name": "Game theory optimal (GTO)",
+      "meaning": "An equilibrium strategy that cannot be exploited; a useful baseline."
+    },
+    {
+      "id": "variance",
+      "name": "Variance",
+      "meaning": "Short-term swings caused by luck, even when you play correctly."
+    },
+    {
+      "id": "mtt",
+      "name": "Multi-table tournament (MTT)",
+      "meaning": "A tournament with many tables, played until one player remains."
+    },
+    {
+      "id": "icm",
+      "name": "Independent chip model (ICM)",
+      "meaning": "A model of chip value in prize money. Extra chips are worth less per chip, encouraging tighter play under payout pressure."
+    },
+    {
+      "id": "bubble",
+      "name": "Bubble",
+      "meaning": "The stage when one more elimination puts the remaining players in the money."
+    },
+    {
+      "id": "short-stack",
+      "name": "Short stack",
+      "meaning": "A stack below 15bb, approximated here with all-in or fold decisions."
+    },
+    {
+      "id": "push-fold",
+      "name": "Push/fold",
+      "meaning": "A short-stack strategy limited to moving all-in or folding."
+    }
+  ],
+  "ja": [
+    {
+      "id": "preflop",
+      "name": "プリフロップ",
+      "meaning": "ホールカードが配られてから、コミュニティカードが出る前の段階です。"
+    },
+    {
+      "id": "flop",
+      "name": "フロップ",
+      "meaning": "最初の3枚のコミュニティカードです。"
+    },
+    {
+      "id": "turn",
+      "name": "ターン",
+      "meaning": "4枚目のコミュニティカードです。"
+    },
+    {
+      "id": "river",
+      "name": "リバー",
+      "meaning": "5枚目で最後のコミュニティカードです。"
+    },
+    {
+      "id": "postflop",
+      "name": "ポストフロップ",
+      "meaning": "フロップ以降のすべての段階です。"
+    },
+    {
+      "id": "pot",
+      "name": "ポット",
+      "meaning": "プレイヤーが中央に出したチップの合計です。"
+    },
+    {
+      "id": "blinds",
+      "name": "ブラインド",
+      "meaning": "ポットを作るためにスモールブラインドとビッグブラインドが払う強制ベットです。"
+    },
+    {
+      "id": "bb",
+      "name": "bb（ビッグブラインド）",
+      "meaning": "チップ量の単位です。100bbはビッグブラインド100回分です。"
+    },
+    {
+      "id": "ante",
+      "name": "アンティ",
+      "meaning": "主にトーナメントの途中から全員が払う追加の少額強制ベットです。"
+    },
+    {
+      "id": "utg",
+      "name": "アンダー・ザ・ガン（UTG）",
+      "meaning": "BBの左隣です。プリフロップで最初に行動する不利なポジションです。"
+    },
+    {
+      "id": "hj-co",
+      "name": "ハイジャック（HJ）/ カットオフ（CO）",
+      "meaning": "中盤から後半のポジションです。後ろで行動できるほど有利です。"
+    },
+    {
+      "id": "btn",
+      "name": "ボタン（BTN）",
+      "meaning": "ディーラーの位置です。ポストフロップで最後に行動できる最も有利な位置です。"
+    },
+    {
+      "id": "sb-bb",
+      "name": "スモール / ビッグブラインド",
+      "meaning": "SBとBBです。プリフロップでは後半、ポストフロップでは早い順番に行動します。"
+    },
+    {
+      "id": "ip",
+      "name": "インポジション（IP）",
+      "meaning": "ポストフロップで相手より後に行動することです。"
+    },
+    {
+      "id": "oop",
+      "name": "アウトオブポジション（OOP）",
+      "meaning": "ポストフロップで相手より先に行動することです。"
+    },
+    {
+      "id": "fold",
+      "name": "フォールド",
+      "meaning": "そのハンドを降りることです。"
+    },
+    {
+      "id": "check",
+      "name": "チェック",
+      "meaning": "ベットに直面していないとき、ベットせずに行動を回すことです。"
+    },
+    {
+      "id": "call",
+      "name": "コール",
+      "meaning": "相手と同じ額を払って続けることです。"
+    },
+    {
+      "id": "bet-raise",
+      "name": "ベット / レイズ",
+      "meaning": "先にチップを出すこと、または既存のベット額を引き上げることです。"
+    },
+    {
+      "id": "rfi",
+      "name": "オープン / RFI",
+      "meaning": "誰も自発的に参加していないとき、最初にレイズすることです。"
+    },
+    {
+      "id": "three-bet",
+      "name": "3ベット",
+      "meaning": "オープンにリレイズすることです。プリフロップでは2回目のレイズです。"
+    },
+    {
+      "id": "four-bet",
+      "name": "4ベット",
+      "meaning": "3ベットにさらにリレイズすることです。"
+    },
+    {
+      "id": "all-in",
+      "name": "オールイン",
+      "meaning": "残りのチップをすべて賭けることです。"
+    },
+    {
+      "id": "c-bet",
+      "name": "Cベット",
+      "meaning": "プリフロップのレイザーがフロップでも続けてベットすることです。"
+    },
+    {
+      "id": "steal",
+      "name": "スチール",
+      "meaning": "ブラインド獲得を狙い、後方の位置からレイズすることです。"
+    },
+    {
+      "id": "vpip",
+      "name": "VPIP（自発的参加率）",
+      "meaning": "自発的にポットへチップを出したハンドの割合です。ルースかタイトかを示します。"
+    },
+    {
+      "id": "suited",
+      "name": "スーテッド（s）",
+      "meaning": "同じスートのホールカードです。AKsなどです。"
+    },
+    {
+      "id": "offsuit",
+      "name": "オフスート（o）",
+      "meaning": "異なるスートのホールカードです。AKoなどです。"
+    },
+    {
+      "id": "pocket-pair",
+      "name": "ポケットペア",
+      "meaning": "同じランクのホールカードです。77などです。"
+    },
+    {
+      "id": "range",
+      "name": "レンジ",
+      "meaning": "ある状況でプレイヤーが持ちうるハンドの集合です。"
+    },
+    {
+      "id": "value-bet",
+      "name": "バリューベット",
+      "meaning": "相手のコールレンジより強いハンドで、利益を増やすためにベットすることです。"
+    },
+    {
+      "id": "bluff",
+      "name": "ブラフ",
+      "meaning": "弱いハンドでベットし、相手を降ろして勝つことです。"
+    },
+    {
+      "id": "semi-bluff",
+      "name": "セミブラフ",
+      "meaning": "ドローでベットすることです。相手のフォールドか自分の完成で勝てます。"
+    },
+    {
+      "id": "draw",
+      "name": "ドロー",
+      "meaning": "あと1枚で強い役になるハンドです。フラッシュドローなどです。"
+    },
+    {
+      "id": "outs",
+      "name": "アウツ",
+      "meaning": "ハンドを改善できる残りカードの枚数です。フラッシュドローは9枚です。"
+    },
+    {
+      "id": "slowplay",
+      "name": "スロープレイ",
+      "meaning": "強いハンドであえて消極的に打ち、相手のベットを誘うことです。"
+    },
+    {
+      "id": "equity",
+      "name": "エクイティ",
+      "meaning": "ショーダウンでポットを獲得する確率です。"
+    },
+    {
+      "id": "pot-odds",
+      "name": "ポットオッズ",
+      "meaning": "コールに必要な額と獲得できるポットの比率です。コール判断に使います。"
+    },
+    {
+      "id": "required-equity",
+      "name": "必要エクイティ",
+      "meaning": "損をしないコールに必要な最低勝率です。コール額をコール後の総ポットで割ります。"
+    },
+    {
+      "id": "ev",
+      "name": "期待値（EV）",
+      "meaning": "同じ判断を繰り返したときの平均利益または損失です。"
+    },
+    {
+      "id": "mdf",
+      "name": "最小防御頻度（MDF）",
+      "meaning": "相手の任意のブラフが利益を出さないように続行する最低割合です。ポット÷（ポット＋ベット）です。"
+    },
+    {
+      "id": "gto",
+      "name": "ゲーム理論最適（GTO）",
+      "meaning": "相手に一方的に攻略されない均衡戦略です。判断の基準に使えます。"
+    },
+    {
+      "id": "variance",
+      "name": "バリアンス",
+      "meaning": "運による短期的な上下です。正しく打っても連敗することがあります。"
+    },
+    {
+      "id": "mtt",
+      "name": "マルチテーブルトーナメント（MTT）",
+      "meaning": "多くの卓で始まり、最後の1人まで勝ち残る大会です。"
+    },
+    {
+      "id": "icm",
+      "name": "ICM（賞金価値モデル）",
+      "meaning": "チップを賞金価値に換算するモデルです。チップが増えるほど1枚の価値は下がり、賞金の重圧がある場面ではタイトな判断になります。"
+    },
+    {
+      "id": "bubble",
+      "name": "バブル",
+      "meaning": "あと1人が敗退すると残った全員が入賞する段階です。"
+    },
+    {
+      "id": "short-stack",
+      "name": "ショートスタック",
+      "meaning": "15bb未満のスタックです。この練習ではオールインかフォールドで近似します。"
+    },
+    {
+      "id": "push-fold",
+      "name": "プッシュ / フォールド",
+      "meaning": "ショートスタックでオールインかフォールドだけを選ぶ戦略です。"
+    }
+  ]
+};
+
+
+function defaultLanguage(value){return /^zh/i.test(value)?'zh-CN':/^ja/i.test(value)?'ja':'en'}
+let lang=defaultLanguage(navigator.language);
+try{const saved=localStorage.getItem('pokerLang');if(Object.hasOwn(I18N,saved))lang=saved}catch(e){}
+function tr(key,values={}){return I18N[lang][key].replace(/\{(\w+)\}/g,(_,k)=>String(values[k]??''))}
+function esc(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function migrateTermScores(scores){
+  const migrated={...scores};
+  for(const term of TERMS['zh-CN']){
+    if(term.name!==term.id&&Object.hasOwn(migrated,term.name)){
+      const old=migrated[term.name];
+      migrated[term.id]=Math.max(Number(migrated[term.id])||0,Number(old)||0);
+      delete migrated[term.name];
+    }
+  }
+  return migrated;
+}
+let tScore={};
+try{const stored=JSON.parse(localStorage.getItem('pokerTerms')||'{}');tScore=migrateTermScores(stored);if(JSON.stringify(stored)!==JSON.stringify(tScore))localStorage.setItem('pokerTerms',JSON.stringify(tScore))}catch(e){}
 const mods={};
 let cur='terms',state={};
-
-// 1) 数学
-mods.math={name:'数学直觉',render(){
-  const t=pick(['odds','odds','outs','mdf']);
-  const P=pick([30,40,60,80,100,120,150,200]);
-  const b=pick([[1,3],[1,2],[2,3],[3,4],[1,1],[3,2]]);
-  const B=Math.round(P*b[0]/b[1]);
-  let q,ans,tol,expl;
-  if(t==='odds'){
-    ans=B/(P+2*B)*100;tol=2;
-    q=`底池 ${P}，对手下注 ${B}。你跟注至少需要多少胜率（%）才不亏？`;
-    expl=`需要胜率 = 跟注额 ÷ (底池 + 对手下注 + 跟注) = ${B} ÷ ${P+2*B} = ${ans.toFixed(1)}%`;
-  }else if(t==='outs'){
-    const o=pick([4,6,8,9,12,15]),flop=Math.random()<0.6;
-    ans=flop?(1-(47-o)/47*(46-o)/46)*100:o/46*100;tol=3;
-    q=`${flop?'翻牌圈':'转牌圈'}你有 ${o} 张 outs。${flop?'到河牌前':'到河牌'}中牌的概率大约是多少（%）？`;
-    expl=`${flop?`翻牌圈：约 outs×4 = ${o*4}%，精确值 ${ans.toFixed(1)}%`:`转牌圈：约 outs×2 = ${o*2}%，精确值 ${ans.toFixed(1)}%`}`;
-  }else{
-    ans=P/(P+B)*100;tol=2;
-    q=`底池 ${P}，你下注 ${B}。对手至少要防守多少比例（%）才能让你的纯诈唬不赚钱？（最小防守频率 MDF）`;
-    expl=`MDF = 底池 ÷ (底池 + 下注) = ${P} ÷ ${P+B} = ${ans.toFixed(1)}%`;
-  }
-  state={ans,tol,expl,q};
-  return `<div class="card"><p class="q">${q}</p>
-  <input type="number" id="in" placeholder="输入百分数，如 33" autofocus>
-  <button class="go" id="ok">提交</button><div id="fb"></div></div>`;
+function mathText(data){
+  const {type,P,B,o,flop,ans}=data;
+  const values={P,B,o,ans:ans.toFixed(1),total:type==='odds'?P+2*B:P+B,street:tr(flop?'flop':'turn'),factor:flop?4:2,approx:o*(flop?4:2)};
+  return {q:tr(type+'Q',values),expl:tr(type+'E',values)};
+}
+function mistakeText(info){
+  if(typeof info==='string')return esc(info);
+  if(!info||typeof info!=='object')return '';
+  if(info.mod==='terms')return esc(TERMS[lang].find(t=>t.id===info.termId)?.name||info.termId);
+  if(info.mod==='math')return esc(tr('mathMiss',{question:mathText(info).q,ans:info.ans.toFixed(1)}));
+  if(info.mod==='rfi')return esc(tr('rfiMiss',{...info,action:tr(info.raise?'raise':'fold')}));
+  if(info.mod==='push')return esc(tr('pushMiss',{...info,action:tr(info.push?'allin':'fold')}));
+  return '';
+}
+mods.math={render(){
+  const type=pick(['odds','odds','outs','mdf']),P=pick([30,40,60,80,100,120,150,200]),b=pick([[1,3],[1,2],[2,3],[3,4],[1,1],[3,2]]),B=Math.round(P*b[0]/b[1]);
+  let ans,tol,o,flop;
+  if(type==='odds'){ans=B/(P+2*B)*100;tol=2}
+  else if(type==='outs'){o=pick([4,6,8,9,12,15]);flop=Math.random()<0.6;ans=flop?(1-(47-o)/47*(46-o)/46)*100:o/46*100;tol=3}
+  else{ans=P/(P+B)*100;tol=2}
+  state={mod:'math',type,P,B,o,flop,ans,tol};
+  return `<div class="card"><p class="q">${mathText(state).q}</p><input type="number" id="in" placeholder="${tr('placeholder')}" autofocus><button class="go" id="ok">${tr('submit')}</button><div id="fb"></div></div>`;
 },bind(){
-  const submit=()=>{
-    const v=parseFloat($('in').value);if(isNaN(v))return;
-    const ok=Math.abs(v-state.ans)<=state.tol;
-    rec('math',ok,state.q+' → 正确 '+state.ans.toFixed(1)+'%');
-    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✓ 正确':'✗ 不对'}（允许误差 ±${state.tol}）<br>${state.expl}</div><button class="next" id="nx">下一题</button>`;
-    $('ok').classList.add('hide');$('nx').onclick=()=>show();$('nx').focus();
-  };
+  const submit=()=>{const v=parseFloat($('in').value);if(isNaN(v)||state.answered)return;state.answered=true;const ok=Math.abs(v-state.ans)<=state.tol;rec('math',ok,{...state});
+    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${tr(ok?'correct':'wrong')} (${tr('tolerance',state)})<br>${mathText(state).expl}</div>${nextButton('nextQ')}`;
+    $('ok').classList.add('hide');bindNext()};
   $('ok').onclick=submit;$('in').onkeydown=e=>{if(e.key==='Enter')submit()};
 }};
-
-// 2) 翻前开池
-mods.rfi={name:'翻前开池',render(){
-  const pos=pick(Object.keys(RFI));
-  let h=dealHand();
-  // 让约一半的题落在范围边缘附近, 提高训练效率
-  state={pos,h};
-  return `<div class="card"><div class="meta">6 人桌 · 100bb · 前面全弃牌 · 你在 <b>${pos}</b></div>
-  <div class="hand">${handHTML(h)}</div>
-  <div class="row"><button id="f">弃牌</button><button id="r">加注开池</button></div><div id="fb"></div></div>`;
-},bind(){
-  const ans=c=>{
-    const {pos,h}=state,inR=RFI_SET[pos].has(h.l),ok=(c==='r')===inR;
-    rec('rfi',ok,`${pos} ${h.l} → 应${inR?'加注':'弃牌'}`);
-    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✓ 正确':'✗ 不对'}：${pos} 的 ${h.l} 应<b>${inR?'加注':'弃牌'}</b>。<br>该位置开池范围约 ${(rangePct(RFI_SET[pos])).toFixed(0)}% 的牌。${gridHTML(RFI_SET[pos],h.l)}</div><button class="next" id="nx">下一手</button>`;
-    document.querySelectorAll('.row button').forEach(b=>b.disabled=true);$('nx').onclick=()=>show();$('nx').focus();
-  };
-  $('f').onclick=()=>ans('f');$('r').onclick=()=>ans('r');
-}};
+function nextButton(key){return `<button class="next" id="nx">${tr(key)}</button>`}
+function bindNext(){$('nx').onclick=()=>show();$('nx').focus()}
 function rangePct(set){let w=0;set.forEach(l=>{w+=l.length===2?6:l[2]==='s'?4:12});return w/1326*100}
-
-// 3) 短码推挤
-mods.push={name:'短码推挤',render(){
-  const pos=pick(Object.keys(PUSH)),stack=pick(Object.keys(PUSH.BTN).map(Number));
-  const h=dealHand();
-  state={pos,stack,h};
-  return `<div class="card"><div class="meta">锦标赛 · 前面全弃牌 · 你在 <b>${pos}</b> · 有效筹码 <b>${stack}bb</b><br>只有推全下和弃牌两个选项</div>
-  <div class="hand">${handHTML(h)}</div>
-  <div class="row"><button id="f">弃牌</button><button id="r">全下</button></div><div id="fb"></div></div>`;
+mods.rfi={render(){
+  const pos=pick(Object.keys(RFI)),h=dealHand();state={pos,h};
+  return `<div class="card"><div class="meta">${tr('rfiMeta',{pos})}</div><div class="hand">${handHTML(h)}</div><div class="row"><button id="f">${tr('fold')}</button><button id="r">${tr('open')}</button></div><div id="fb"></div></div>`;
 },bind(){
-  const ans=c=>{
-    const {pos,stack,h}=state,lim=PUSH[pos][stack],p=RANKED[h.l];
-    const border=Math.abs(p-lim)<=3,push=p<=lim;
-    const ok=border||((c==='r')===push);
-    rec('push',ok,`${pos} ${stack}bb ${h.l}（排名前${p.toFixed(0)}%，线${lim}%）→ 应${push?'推':'弃'}`);
-    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${ok?'✓ 可以':'✗ 不对'}：${pos} ${stack}bb 大约推前 <b>${lim}%</b> 的牌。${h.l} 排在前 ${p.toFixed(0)}%，${border?'属于<b>边缘牌</b>，推或弃都可以':'应<b>'+(push?'全下':'弃牌')+'</b>'}。</div><button class="next" id="nx">下一手</button>`;
-    document.querySelectorAll('.row button').forEach(b=>b.disabled=true);$('nx').onclick=()=>show();$('nx').focus();
-  };
-  $('f').onclick=()=>ans('f');$('r').onclick=()=>ans('r');
+  const ans=c=>{const {pos,h}=state,inR=RFI_SET[pos].has(h.l),ok=(c==='r')===inR;rec('rfi',ok,{mod:'rfi',pos,hand:h.l,raise:inR});
+    $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${tr(ok?'correct':'wrong')}: ${tr('rfiAnswer',{pos,hand:h.l,action:tr(inR?'raise':'fold'),pct:rangePct(RFI_SET[pos]).toFixed(0)})}${gridHTML(RFI_SET[pos],h.l)}</div>${nextButton('nextHand')}`;
+    document.querySelectorAll('.row button').forEach(b=>b.disabled=true);bindNext()};$('f').onclick=()=>ans('f');$('r').onclick=()=>ans('r');
 }};
-
-// 范围表（按最早可开池位置上色）
+mods.push={render(){const pos=pick(Object.keys(PUSH)),stack=pick(Object.keys(PUSH.BTN).map(Number)),h=dealHand();state={pos,stack,h};
+  return `<div class="card"><div class="meta">${tr('pushMeta',{pos,stack})}</div><div class="hand">${handHTML(h)}</div><div class="row"><button id="f">${tr('fold')}</button><button id="r">${tr('allin')}</button></div><div id="fb"></div></div>`;
+},bind(){const ans=c=>{const {pos,stack,h}=state,lim=PUSH[pos][stack],p=RANKED[h.l],border=Math.abs(p-lim)<=3,push=p<=lim,ok=border||((c==='r')===push);
+  rec('push',ok,{mod:'push',pos,stack,hand:h.l,rank:p.toFixed(0),lim,push});
+  $('fb').innerHTML=`<div class="fb ${ok?'ok':'bad'}">${tr(ok?'acceptable':'wrong')}: ${tr('pushAnswer',{pos,stack,lim,hand:h.l,rank:p.toFixed(0),decision:border?tr('border'):tr('decision',{action:tr(push?'allin':'fold')})})}</div>${nextButton('nextHand')}`;
+  document.querySelectorAll('.row button').forEach(b=>b.disabled=true);bindNext()};$('f').onclick=()=>ans('f');$('r').onclick=()=>ans('r')
+}};
 let chartMode='all';
 const POS_ORDER=['UTG','HJ','CO','BTN'];
 const POS_COLOR={UTG:'#2d9d6a',HJ:'#7cc65a',CO:'#d4c245',BTN:'#e08a3c'};
-mods.chart={name:'范围表',render(){
-  const earliest=l=>POS_ORDER.find(p=>RFI_SET[p].has(l));
-  const sb=chartMode==='SB';
-  const cells=ALL.map(x=>{
-    const e=sb?(RFI_SET.SB.has(x.l)?'SB':null):earliest(x.l);
-    const bg=e==='SB'?'#5aa0e0':e?POS_COLOR[e]:'#22352b';
-    return `<div data-l="${x.l}" style="background:${bg};color:${e?'#10200f':'#5d7666'}">${x.l}</div>`;
-  }).join('');
-  const toggle=`<div class="row" style="margin:8px 0"><button data-m="all" style="${sb?'':'background:#e0b04a;color:#1a1405'}">前四个位置</button><button data-m="SB" style="${sb?'background:#e0b04a;color:#1a1405':''}">小盲 SB</button></div>`;
-  const legend=sb?`<span style="display:inline-block;margin-right:8px"><i style="display:inline-block;width:12px;height:12px;background:#5aa0e0;border-radius:3px;vertical-align:-1px"></i> 小盲加注</span><span><i style="display:inline-block;width:12px;height:12px;background:#22352b;border-radius:3px;vertical-align:-1px"></i> 弃牌</span>`:POS_ORDER.map(p=>`<span style="display:inline-block;margin:2px 8px 2px 0"><i style="display:inline-block;width:12px;height:12px;background:${POS_COLOR[p]};border-radius:3px;vertical-align:-1px"></i> ${p}${p==='UTG'?'起':'起'}</span>`).join('')
-    +`<span><i style="display:inline-block;width:12px;height:12px;background:#22352b;border-radius:3px;vertical-align:-1px"></i> 都弃牌</span>`;
-  return `<div class="card"><b>开池范围总表</b>（前面没人入池时，6 人桌 100bb）
-  <p class="meta" style="text-align:left;margin:6px 0">颜色 = 从这个位置起可以加注开池，更靠后的位置也可以。<br>对角线是对子，右上是同花（s），左下是杂色（o）。</p>
-  ${toggle}
-  <div>${legend}</div>
-  <div class="grid big" id="cg">${cells}</div>
-  <div id="cinfo" class="fb ok" style="margin-top:12px">点任意格子，看它在各位置怎么打</div>
-  <p class="meta" style="text-align:left;margin-top:10px">各位置玩多少手牌：UTG ${rangePct(RFI_SET.UTG).toFixed(0)}% · HJ ${rangePct(RFI_SET.HJ).toFixed(0)}% · CO ${rangePct(RFI_SET.CO).toFixed(0)}% · BTN ${rangePct(RFI_SET.BTN).toFixed(0)}% · SB ${rangePct(RFI_SET.SB).toFixed(0)}%</p></div>`;
-},bind(){
-  document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{chartMode=b.dataset.m;show()});
-  $('cg').querySelectorAll('div').forEach(d=>d.onclick=()=>{
-    const l=d.dataset.l;
-    $('cinfo').innerHTML=`<b>${l}</b>：`+[...POS_ORDER,'SB'].map(p=>`${p} ${RFI_SET[p].has(l)?'✅加注':'❌弃牌'}`).join('　');
-  });
+function swatch(color,text){return `<span style="display:inline-block;margin:2px 8px 2px 0"><i style="display:inline-block;width:12px;height:12px;background:${color};border-radius:3px;vertical-align:-1px"></i> ${text}</span>`}
+mods.chart={render(){
+  const earliest=l=>POS_ORDER.find(p=>RFI_SET[p].has(l)),sb=chartMode==='SB';
+  const cells=ALL.map(x=>{const e=sb?(RFI_SET.SB.has(x.l)?'SB':null):earliest(x.l),bg=e==='SB'?'#5aa0e0':e?POS_COLOR[e]:'#22352b';return `<div data-l="${x.l}" style="background:${bg};color:${e?'#10200f':'#5d7666'}">${x.l}</div>`}).join('');
+  const toggle=`<div class="row" style="margin:8px 0"><button data-m="all" style="${sb?'':'background:#e0b04a;color:#1a1405'}">${tr('fourPositions')}</button><button data-m="SB" style="${sb?'background:#e0b04a;color:#1a1405':''}">${tr('smallBlind')}</button></div>`;
+  const legend=sb?swatch('#5aa0e0',tr('sbRaise'))+swatch('#22352b',tr('fold')):POS_ORDER.map(p=>swatch(POS_COLOR[p],tr('fromPos',{pos:p}))).join('')+swatch('#22352b',tr('foldAll'));
+  return `<div class="card"><b>${tr('chartTitle')}</b> (${tr('chartContext')})<p class="meta" style="text-align:left;margin:6px 0">${tr('chartHelp')}</p>${toggle}<div>${legend}</div><div class="grid big" id="cg">${cells}</div><div id="cinfo" class="fb ok" style="margin-top:12px">${tr('chartClick')}</div><p class="meta" style="text-align:left;margin-top:10px">${tr('chartPct')}${[...POS_ORDER,'SB'].map(p=>`${p} ${rangePct(RFI_SET[p]).toFixed(0)}%`).join(' · ')}</p></div>`;
+},bind(){document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{chartMode=b.dataset.m;show()});$('cg').querySelectorAll('div').forEach(d=>d.onclick=()=>{$('cinfo').innerHTML=`<b>${d.dataset.l}</b>: `+[...POS_ORDER,'SB'].map(p=>`${p} ${RFI_SET[p].has(d.dataset.l)?'✅'+tr('raise'):'❌'+tr('fold')}`).join('　')})}};
+mods.terms={render(){
+  const terms=TERMS[lang],w=terms.map(t=>4-(tScore[t.id]||0));let r=Math.random()*w.reduce((a,b)=>a+b,0),i=0;while(r>w[i]){r-=w[i];i++}
+  const rev=Math.random()<0.4,mastered=terms.filter(t=>(tScore[t.id]||0)>=3).length;state={t:terms[i],rev};
+  return `<div class="card"><div class="meta">${tr('mastered',{n:mastered,total:terms.length})}</div><p class="q" style="text-align:center;font-size:${rev?17:24}px">${rev?state.t.meaning:state.t.name}</p><button class="go" id="rv" style="width:100%">${tr(rev?'showTerm':'showMeaning')}</button><div id="fb"></div></div>`;
+},bind(){const {t,rev}=state;$('rv').onclick=()=>{$('rv').classList.add('hide');$('fb').innerHTML=`<div class="fb ok" style="font-size:17px"><b>${rev?t.name:t.meaning}</b><br>${rev?t.meaning:t.name}</div><div class="row" style="margin-top:10px"><button id="no">${tr('notYet')}</button><button id="yes">${tr('remembered')}</button></div>`;
+  const done=ok=>{tScore[t.id]=Math.max(0,Math.min(3,(tScore[t.id]||0)+(ok?1:-2)));try{localStorage.setItem('pokerTerms',JSON.stringify(tScore))}catch(e){}rec('terms',ok,{mod:'terms',termId:t.id});show()};$('yes').onclick=()=>done(true);$('no').onclick=()=>done(false)}
 }};
-
-// 4) 术语闪卡
-const TERMS=[
-['翻前 preflop','发完两张底牌、还没发公共牌的阶段'],
-['翻牌 flop','前三张公共牌'],
-['转牌 turn','第四张公共牌'],
-['河牌 river','第五张，也是最后一张公共牌'],
-['翻后 postflop','翻牌之后的所有阶段'],
-['底池 pot','桌上所有人已投入的筹码总和'],
-['盲注 blinds','由小盲和大盲支付的强制下注，用来制造底池'],
-['bb（大盲）','筹码单位。100bb 就是有 100 个大盲那么多筹码'],
-['ante（前注）','比赛中期开始，每人都要交的额外小额强制下注'],
-['UTG','大盲左边第一个，翻前第一个行动，位置最不利'],
-['HJ（劫位）/ CO（关煞位）','中间位置，越靠后越有利'],
-['BTN（按钮位）','庄家位，翻后最后一个行动，位置最有利'],
-['SB / BB','小盲 / 大盲。翻前很晚行动，翻后反而最早行动'],
-['有位置 IP','翻后你比对手晚行动'],
-['没位置 OOP','翻后你比对手早行动'],
-['弃牌 fold','放弃这手牌'],
-['过牌 check','没人下注时，选择不下注、继续'],
-['跟注 call','付出等额筹码继续'],
-['下注 / 加注 bet / raise','主动投入更多筹码'],
-['开池 open / RFI','前面没人主动入池时，你第一个加注'],
-['3-bet','对别人的开池再加注（翻前的第二次加注）'],
-['4-bet','对 3-bet 再加注'],
-['全下 all-in','把所有筹码推进去'],
-['c-bet（持续下注）','翻前是加注者，翻牌后继续下注'],
-['偷盲 steal','在后位加注，目的是赢走盲注'],
-['VPIP（入池率）','主动往底池投钱的手牌占比，衡量你打得松还是紧'],
-['同花 suited（s）','两张底牌花色相同，如 AKs'],
-['杂色 offsuit（o）','两张底牌花色不同，如 AKo'],
-['口袋对 pair','两张底牌点数相同，如 77'],
-['范围 range','在某个情境下你可能持有的所有牌的集合'],
-['价值下注 value bet','手牌比对手的跟注范围强，下注是为了多赢钱'],
-['诈唬 bluff','用弱牌下注，靠对手弃牌来赢'],
-['半诈唬 semi-bluff','用还没成牌的听牌下注，弃牌和中牌两条路都能赢'],
-['听牌 draw','现在还不是好牌，再来一张就成的牌，如同花听牌'],
-['outs','能让你成牌的剩余牌数。同花听牌有 9 张'],
-['慢打 slowplay','拿着强牌故意不加注，引对手投钱'],
-['胜率 equity','这手牌到摊牌时赢下底池的概率'],
-['底池赔率 pot odds','跟注要付的钱相对于能赢到的钱的比例，用来决定该不该跟'],
-['所需胜率','跟注至少要有的胜率，等于跟注额 ÷ 跟注后的总底池'],
-['EV（期望值）','某个决定长期平均能赚或亏多少，正数就是好决定'],
-['MDF（最小防守频率）','对手下注后你至少要继续的牌的比例，否则对方任意诈唬都赚钱。等于底池 ÷（底池+下注）'],
-['GTO（博弈论最优）','一种无法被针对的均衡打法，可当作"标准答案基线"'],
-['方差 variance','运气造成的短期波动，打得再对也会连输'],
-['MTT','多桌锦标赛，很多人报名，淘汰到最后一个人'],
-['ICM','把筹码换算成奖金价值的模型。筹码越多，每个筹码越不值钱，所以奖金压力下要打得更紧'],
-['泡沫期 bubble','再淘汰一个人就进入奖励圈的阶段，人人都怕出局'],
-['短码 short stack','筹码只有 15bb 以下，只能推全下或弃牌'],
-['push/fold','短码时只有推全下或弃牌两种选择的打法']
-];
-let tScore={};try{tScore=JSON.parse(localStorage.getItem('pokerTerms')||'{}')}catch(e){}
-mods.terms={name:'术语闪卡',render(){
-  const w=TERMS.map(t=>4-(tScore[t[0]]||0));
-  let r=Math.random()*w.reduce((a,b)=>a+b,0),i=0;
-  while(r>w[i]){r-=w[i];i++}
-  const rev=Math.random()<0.4; // 反向：给解释猜术语
-  const mastered=TERMS.filter(t=>(tScore[t[0]]||0)>=3).length;
-  state={t:TERMS[i]};
-  return `<div class="card"><div class="meta">已掌握 ${mastered} / ${TERMS.length}</div>
-  <p class="q" style="text-align:center;font-size:${rev?17:24}px">${rev?state.t[1]:state.t[0]}</p>
-  <button class="go" id="rv" style="width:100%">${rev?'显示术语':'显示解释'}</button>
-  <div id="fb"></div></div>`;
-},bind(){
-  const [term,mean]=state.t;
-  const rev=$('rv').textContent==='显示术语';
-  $('rv').onclick=()=>{
-    $('rv').classList.add('hide');
-    $('fb').innerHTML=`<div class="fb ok" style="font-size:17px"><b>${term}</b><br>${mean}</div>
-    <div class="row" style="margin-top:10px"><button id="no">还没记住</button><button id="yes">记住了</button></div>`;
-    const done=ok=>{
-      tScore[term]=Math.max(0,Math.min(3,(tScore[term]||0)+(ok?1:-2)));
-      try{localStorage.setItem('pokerTerms',JSON.stringify(tScore))}catch(e){}
-      rec('terms',ok,term);show();
-    };
-    $('yes').onclick=()=>done(true);$('no').onclick=()=>done(false);
-  };
-}};
-
-// 5) 统计
-mods.stats={name:'统计',render(){
-  const names={terms:'术语闪卡',math:'数学直觉',rfi:'翻前开池',push:'短码推挤'};
-  const rows=Object.keys(names).map(k=>{const s=stats[k]||{n:0,c:0};return `<tr><td>${names[k]}</td><td>${s.n}</td><td>${s.n?(s.c/s.n*100).toFixed(0)+'%':'-'}</td></tr>`}).join('');
-  const miss=Object.keys(names).flatMap(k=>(stats[k]?.miss||[]).slice(0,5).map(m=>`<li>${names[k]}：${m}</li>`)).join('');
-  return `<div class="card"><table><tr><th>模块</th><th>做题数</th><th>正确率</th></tr>${rows}</table></div>
-  <div class="card"><b>最近错题</b><ul>${miss||'<li>暂无</li>'}</ul><button class="next" id="clr" style="background:#2c4436;color:#e8f0ea">清空记录</button></div>`;
+mods.stats={render(){const keys=['terms','math','rfi','push'];const rows=keys.map(k=>{const s=stats[k]||{n:0,c:0};return `<tr><td>${tr(k)}</td><td>${s.n}</td><td>${s.n?(s.c/s.n*100).toFixed(0)+'%':'-'}</td></tr>`}).join('');
+  const miss=keys.flatMap(k=>(stats[k]?.miss||[]).slice(0,5).map(m=>`<li>${tr(k)}: ${mistakeText(m)}</li>`)).join('');
+  return `<div class="card"><table><tr><th>${tr('module')}</th><th>${tr('attempts')}</th><th>${tr('accuracy')}</th></tr>${rows}</table></div><div class="card"><b>${tr('recentMisses')}</b><ul>${miss||'<li>'+tr('none')+'</li>'}</ul><button class="next" id="clr" style="background:#2c4436;color:#e8f0ea">${tr('clear')}</button></div>`;
 },bind(){$('clr').onclick=()=>{stats={};try{localStorage.removeItem('pokerStats')}catch(e){}show()}}};
-
+function setLanguage(next){if(!Object.hasOwn(I18N,next))return;lang=next;try{localStorage.setItem('pokerLang',lang)}catch(e){}show()}
 function show(){
-  $('nav').innerHTML=Object.keys(mods).map(k=>`<button class="${k===cur?'on':''}" data-k="${k}">${mods[k].name}</button>`).join('');
-  $('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{cur=b.dataset.k;show()});
-  $('view').innerHTML=mods[cur].render();mods[cur].bind();
+  document.documentElement.lang=lang;document.title=tr('title');$('heading').textContent='♠ '+tr('title');$('note').textContent=tr('note');
+  $('languages').innerHTML=Object.keys(I18N).map(code=>`<button data-lang="${code}" aria-pressed="${code===lang}">${I18N[code][{'zh-CN':'languageZh',en:'languageEn',ja:'languageJa'}[code]]}</button>`).join(' / ');
+  $('languages').querySelectorAll('button').forEach(b=>b.onclick=()=>setLanguage(b.dataset.lang));
+  $('nav').innerHTML=Object.keys(mods).map(k=>`<button class="${k===cur?'on':''}" data-k="${k}">${tr(k)}</button>`).join('');
+  $('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{cur=b.dataset.k;show()});$('view').innerHTML=mods[cur].render();mods[cur].bind();
 }
 show();
 </script>
